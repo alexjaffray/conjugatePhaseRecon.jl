@@ -3,7 +3,6 @@ using
     DSP,
     NIfTI,
     FiniteDifferences,
-    PyPlot,
     Waveforms,
     Distributions,
     ImageFiltering,
@@ -13,33 +12,31 @@ using
     NFFT,
     Zygote,
     TestImages,
+    Plots,
     LinearAlgebra,
     KernelAbstractions,
     CUDAKernels,
+    MRISimulation,
     Tullio,
-    ROMEO
+    ROMEO,
+    MosaicViews
 
 #use pyplot backend with interactivity turned on
-pygui(true)
+plotlyjs()
 
 ## Have to set this to the real number of threads because MRIReco.jl seems to set this to 1 when it's loaded :(
-BLAS.set_num_threads(64)
+BLAS.set_num_threads(16)
 
 ## Plot the Euclidean error between the two trajectories
 function plotTrajectoryError(x, y)
 
-    figure("Pointwise Trajectory Error")
-    plot(sqrt.(abs2.(y[1, :]) .+ abs2.(y[2, :])) - sqrt.(abs2.(x[1, :]) + abs2.(x[2, :])))
-
-    xlabel("Sample Index")
-    ylabel("Euclidean Distance between Nominal and Actual Positions")
+    p1 = plot(sqrt.(abs2.(y[1, :]) .+ abs2.(y[2, :])) - sqrt.(abs2.(x[1, :]) + abs2.(x[2, :])))
+    [p1]
 
 end
 
 ## Show reconstructed image magnitude and phase including normalization if specified
 function showReconstructedImage(x, sh, do_normalization)
-
-    fig = figure("Reconstruction", figsize = (10, 4))
 
     x_max = maximum(abs.(x))
 
@@ -52,23 +49,17 @@ function showReconstructedImage(x, sh, do_normalization)
         x_max = 1.0
     end
 
-    subplot(121)
-    title("Magnitude")
-    imshow(reshapedMag, vmin = 0, vmax = x_max, cmap = "gray")
-    colorbar()
+    
+    p1 = heatmap(reshapedMag)
+    p2 = heatmap(reshapedAngle)
 
-    subplot(122)
-    title("Phase")
-    imshow(reshapedAngle, vmin = -pi, vmax = pi, cmap = "seismic")
-    colorbar()
+    [p1 p2]
 
 
 end
 
 ## Show reconstructed image magnitude and phase including normalization if specified
 function compareReconstructedImages(x, y, sh, do_normalization)
-
-    fig = figure("Reconstruction Comparison", figsize = (10, 8))
 
     x_max = maximum(abs.(x))
     y_max = maximum(abs.(y))
@@ -79,7 +70,6 @@ function compareReconstructedImages(x, y, sh, do_normalization)
     reshapedMag_y = reshape(abs.(y), sh[1], sh[2])
     reshapedAngle_y = reshape(angle.(y), sh[1], sh[2])
 
-
     ## Normalize step:
     if do_normalization
         reshapedMag_x = reshapedMag_x ./ x_max
@@ -88,112 +78,90 @@ function compareReconstructedImages(x, y, sh, do_normalization)
         y_max = 1.0
     end
 
-    subplot(221)
-    title("Magnitude (Initial)")
-    imshow(reshapedMag_x, vmin = 0, vmax = x_max, cmap = "gray")
-    colorbar()
+    p1 = heatmap(reshapedMag_x)
 
-    subplot(222)
-    title("Phase (Initial)")
-    imshow(reshapedAngle_x, vmin = -pi, vmax = pi, cmap = "seismic")
-    colorbar()
+    p2 = heatmap(reshapedAngle_x)
 
-    subplot(223)
-    title("Magnitude (Final)")
-    imshow(reshapedMag_y, vmin = 0, vmax = y_max, cmap = "gray")
-    colorbar()
+    p3 = heatmap(reshapedMag_y)
 
-    subplot(224)
-    title("Phase (Final)")
-    imshow(reshapedAngle_y, vmin = -pi, vmax = pi, cmap = "seismic")
-    colorbar()
-
+    p4 = heatmap(reshapedAngle_y)
 
 end
 
-## Plot the Euclidean error between the two trajectories
-function plotTrajectories(t_nom, t_perturbed, t_solved)
+# ## Plot the Euclidean error between the two trajectories
+# function plotTrajectories(t_nom, t_perturbed, t_solved)
 
-    figure("Trajectory Comparison", figsize = (12, 12))
+#     gt_error = sqrt.(abs2.(t_nom[1, :]) .+ abs2.(t_nom[2, :])) - sqrt.(abs2.(t_perturbed[1, :]) + abs2.(t_perturbed[2, :]))
+#     solved_error = sqrt.(abs2.(t_solved[1, :]) .+ abs2.(t_solved[2, :])) - sqrt.(abs2.(t_perturbed[1, :]) + abs2.(t_perturbed[2, :]))
 
-    gt_error = sqrt.(abs2.(t_nom[1, :]) .+ abs2.(t_nom[2, :])) - sqrt.(abs2.(t_perturbed[1, :]) + abs2.(t_perturbed[2, :]))
-    solved_error = sqrt.(abs2.(t_solved[1, :]) .+ abs2.(t_solved[2, :])) - sqrt.(abs2.(t_perturbed[1, :]) + abs2.(t_perturbed[2, :]))
+#     p1 = plot(t_nom')
+#     p2 = plot(t_perturbed')
+#     p3 = plot(t_solved')
+#     [p1 p2 p3]
 
-    subplot(211)
-    plot(t_nom', label = ["Nominal kx Trajectory", "Nominal ky Trajectory"])
-    plot(t_perturbed', label = ["Ground Truth kx Trajectory", "Ground Truth ky Trajectory"])
-    plot(t_solved', label = ["Estimated kx Trajectory", "Estimated ky Trajectory"])
-    xlabel("Sampling Index")
-    ylabel("K-Space Position")
-    legend(loc = "upper right")
+#     p4 = plot(gt_error)
+#     p5 = plot(solved_error)
 
-    subplot(212)
-    plot(gt_error, label = "Nominal Error w.r.t GT")
-    plot(solved_error, label = "Estimated Error w.r.t GT")
-    xlabel("Sample Index")
-    ylabel("Sampling Position Error")
-    legend(loc = "upper right")
+#     figure("Gradient Comparison", figsize = (12, 12))
 
-    figure("Gradient Comparison", figsize = (12, 12))
+#     plot(nodes_to_gradients(t_nom)', label = ["Nominal Gx", "Nominal Gy"])
+#     plot(nodes_to_gradients(t_perturbed)', label = ["Ground Truth Gx", "Ground Truth Gy"])
+#     plot(nodes_to_gradients(t_solved)', label = ["Estimated Gx", "Estimated Gy"])
+#     xlabel("Sampling Index")
+#     ylabel("Gradient")
+#     legend(loc = "upper right")
+# end
 
-    plot(nodes_to_gradients(t_nom)', label = ["Nominal Gx", "Nominal Gy"])
-    plot(nodes_to_gradients(t_perturbed)', label = ["Ground Truth Gx", "Ground Truth Gy"])
-    plot(nodes_to_gradients(t_solved)', label = ["Estimated Gx", "Estimated Gy"])
-    xlabel("Sampling Index")
-    ylabel("Gradient")
-    legend(loc = "upper right")
-end
+# function plotKernels(k_gt, k_est)
 
-function plotKernels(k_gt, k_est)
+#     kernel_size_difference = size(k_est, 2) - size(k_gt, 2)
+#     k_gt_padded = hcat(zeros(2, kernel_size_difference), k_gt)
 
-    kernel_size_difference = size(k_est, 2) - size(k_gt, 2)
-    k_gt_padded = hcat(zeros(2, kernel_size_difference), k_gt)
+#     sampleIndices = -size(k_gt_padded, 2)+1:0
 
-    sampleIndices = -size(k_gt_padded, 2)+1:0
+#     figure("Kernel Comparison")
+#     plot(sampleIndices, k_gt_padded', label = ["Ground-truth kernel (x-dir)", "Ground-truth kernel (y-dir)"])
+#     plot(sampleIndices, k_est', label = ["Estimated kernel (x-dir)", "Estimated kernel (y-dir)"])
+#     xlabel("Sampling Index")
+#     legend(loc = "upper left")
+# end
 
-    figure("Kernel Comparison")
-    plot(sampleIndices, k_gt_padded', label = ["Ground-truth kernel (x-dir)", "Ground-truth kernel (y-dir)"])
-    plot(sampleIndices, k_est', label = ["Estimated kernel (x-dir)", "Estimated kernel (y-dir)"])
-    xlabel("Sampling Index")
-    legend(loc = "upper left")
-end
+# ## Function for plotting the voxel-wise errors between two Complex-valued images x and y of a given shape sh
+# function plotError(x, y, sh)
 
-## Function for plotting the voxel-wise errors between two Complex-valued images x and y of a given shape sh
-function plotError(x, y, sh)
+#     fig = figure("Voxel-wise Reconstruction Errors", figsize = (10, 4))
+#     absErrorTerm = Flux.Losses.mae.(abs.(x), abs.(y)) ./ abs.(x)
+#     angleErrorTerm = Flux.Losses.mae.(angle.(x), angle.(y))
 
-    fig = figure("Voxel-wise Reconstruction Errors", figsize = (10, 4))
-    absErrorTerm = Flux.Losses.mae.(abs.(x), abs.(y)) ./ abs.(x)
-    angleErrorTerm = Flux.Losses.mae.(angle.(x), angle.(y))
+#     reshapedMag = reshape(absErrorTerm, sh[1], sh[2])
+#     reshapedAngle = reshape(angleErrorTerm, sh[1], sh[2])
 
-    reshapedMag = reshape(absErrorTerm, sh[1], sh[2])
-    reshapedAngle = reshape(angleErrorTerm, sh[1], sh[2])
+#     subplot(121)
+#     title("Magnitude Error")
+#     imshow(reshapedMag, vmin = 0, vmax = 1.0, cmap = "jet")
+#     colorbar()
 
-    subplot(121)
-    title("Magnitude Error")
-    imshow(reshapedMag, vmin = 0, vmax = 1.0, cmap = "jet")
-    colorbar()
+#     subplot(122)
+#     title("Phase Error")
+#     imshow(reshapedAngle, vmin = -pi, vmax = pi, cmap = "Spectral")
+#     colorbar()
 
-    subplot(122)
-    title("Phase Error")
-    imshow(reshapedAngle, vmin = -pi, vmax = pi, cmap = "Spectral")
-    colorbar()
+# end
 
-end
+# ## Loss Evolution Plotting Function
+# function plotLoss(loss, kernLoss, trajLoss, gradLoss)
 
-## Loss Evolution Plotting Function
-function plotLoss(loss, kernLoss, trajLoss, gradLoss)
+#     figure("Loss Over Time")
+#     plot(loss ./ loss[1], label = "Recon (Training) Loss")
+#     plot(kernLoss ./ kernLoss[1], label = "Kernel Loss")
+#     plot(trajLoss ./ trajLoss[1], label = "Trajectory Loss")
+#     plot(gradLoss ./ gradLoss[1], label = "Gradient Loss")
+#     legend(loc = "upper right")
+#     title("Normalized Loss")
+#     xlabel("Iteration")
+#     ylabel("Loss")
 
-    figure("Loss Over Time")
-    plot(loss ./ loss[1], label = "Recon (Training) Loss")
-    plot(kernLoss ./ kernLoss[1], label = "Kernel Loss")
-    plot(trajLoss ./ trajLoss[1], label = "Trajectory Loss")
-    plot(gradLoss ./ gradLoss[1], label = "Gradient Loss")
-    legend(loc = "upper right")
-    title("Normalized Loss")
-    xlabel("Iteration")
-    ylabel("Loss")
-
-end
+# end
 
 ## Generic Allocator for the E system matrix
 function prepareE(imShape)
@@ -268,16 +236,6 @@ function weighted_EMulx_Tullio(x, nodes::Matrix{Float64}, positions::Matrix{Floa
 
 end
 
-## Version of Matrix-Vector Multiplication using Tullio.jl. Supposedly very fast and flexible.
-function weighted_EMulx_Tullio_SENSE(x, nodes::Matrix{Float64}, positions::Matrix{Float64}, weights::Vector{Float64}, sens)
-
-    #@tullio W[k] := sqrt <| $gradients[i,k]*$gradients[i,k] ## Define weights as magnitude of gradients
-    @tullio E[k, n] := exp <| (-1.0im * pi * 2.0 * nodes[i, k] * $positions[i, n])
-    @tullio y[γ, k] := weights[k] * E[k, n] * (sens[γ,n] * $x[n])
-
-    return y
-
-end
 
 ## Version of Matrix-Vector Multiplication using Tullio.jl. Supposedly very fast and flexible.
 function EHMulx_Tullio(x, nodes::Matrix{Float64}, positions::Matrix{Float64})
@@ -310,6 +268,50 @@ function weighted_EHMulx_Tullio(x, nodes::Matrix{Float64}, positions::Matrix{Flo
 
 end
 
+
+## Version of Matrix-Vector Multiplication using Tullio.jl. Supposedly very fast and flexible.
+function weighted_EMulx_Tullio_Sep(x_re, x_im, nodes, positions, weights, b0_map, times)
+
+    # Separation of real and imaginary parts to play well with GPU
+    @tullio RE_E[k, n] := cos <| (-Float32(pi) * 2 * nodes[i, k] * $positions[i, n] - times[k]*b0_map[n])
+    @tullio IM_E[k, n] := sin <| (-Float32(pi) * 2 * nodes[i, k] * $positions[i, n] - times[k]*b0_map[n])
+
+    @tullio y_re[k] := (weights[k] * RE_E[k, n]) * x_re[n] - (weights[k] * IM_E[k, n]) * x_im[n]
+    @tullio y_im[k] := (weights[k] * IM_E[k, n]) * x_re[n] + (weights[k] * RE_E[k, n]) * x_im[n]
+
+    # w_re = weights .* y_re
+    # w_im = weights .* y_im
+
+    return (y_re, y_im)
+
+end
+
+
+## Weighted Version of Matrix-Vector Multiplication using Tullio.jl with real matrices and CUDA compat...
+function weighted_EHMulx_Tullio_Sep(x_re, x_im, nodes, positions, weights, b0_map, times)
+
+    # Separation of real and imaginary parts to play well with GPU
+    @tullio RE_E[n, k] := cos <| (Float32(pi) * 2 * $positions[i, n] * nodes[i, k] + b0_map[n]*times[k])
+    @tullio IM_E[n, k] := sin <| (Float32(pi) * 2 * $positions[i, n] * nodes[i, k] + b0_map[n]*times[k])
+
+    @tullio y_re[n] := RE_E[n, k] * ($weights[k]*x_re[k]) - IM_E[n, k] * ($weights[k]*x_im[k])
+    @tullio y_im[n] := IM_E[n, k] * ($weights[k]*x_re[k]) + RE_E[n, k] * ($weights[k]*x_im[k])
+
+    return (y_re, y_im)
+
+end
+
+## Version of Matrix-Vector Multiplication using Tullio.jl. Supposedly very fast and flexible.
+function weighted_EMulx_Tullio_SENSE(x, nodes::Matrix{Float64}, positions::Matrix{Float64}, weights::Vector{Float64}, sens)
+
+    #@tullio W[k] := sqrt <| $gradients[i,k]*$gradients[i,k] ## Define weights as magnitude of gradients
+    @tullio E[k, n] := exp <| (1.0im * pi * 2.0 * nodes[i, k] * $positions[i, n])
+    @tullio y[γ, k] := weights[k] * E[k, n] * sens[γ,n] * $x[n]
+
+    return y
+
+end
+
 ## Weighted Version of Matrix-Vector Multiplication using Tullio.jl. Supposedly very fast and flexible.
 function weighted_EHMulx_Tullio_SENSE(x, nodes::Matrix{Float64}, positions::Matrix{Float64}, weights::Vector{Float64}, sens::Matrix{ComplexF64})
 
@@ -317,9 +319,12 @@ function weighted_EHMulx_Tullio_SENSE(x, nodes::Matrix{Float64}, positions::Matr
 
     #DENSITY COMPENSATION FUNCTION AS DESCRIBED IN NOLL, FESSLER and SUTTON
     #@tullio W[k] := sqrt <| $gradients[i,k]*$gradients[i,k] ## Define weights as magnitude of gradients
+    @info size(positions)
+    @info size(nodes)
+    @info size(weights)
 
-    @tullio EH[n, k] := exp <| (1.0im * pi * 2.0 * $positions[i, n] * nodes[i, k] )
-    @tullio y[γ, n] := I[n] *I[n]* conj(sens[γ,n]) * EH[n, k] * (weights[k]*$x[γ, k])
+    @tullio EH[n, k] := exp <| (-1.0im * pi * 2.0 * $positions[i, n] * nodes[i, k] )
+    @tullio y[γ, n] := conj(sens[γ,n]) * EH[n, k] * (weights[k]*x[γ, k])
 
     return y
 
@@ -327,13 +332,10 @@ end
 
 function getIntensityCorrection(sens)
 
-    I₀ = sum(abs2, sens, dims=1)
-    I = 1 ./ (sqrt.(I₀))
+    I₀ = sqrt.(sum(abs2, sens, dims=1))
+    I = 1 ./ (I₀)
     I = I ./ max(I...)
-
-    figure()
-    imshow(reshape(abs.(I),192,192))
-
+    
     return I 
 
 end
@@ -554,6 +556,59 @@ function deltaKernel(kernel_length, shift)
 
 end
 
+function cg(a_t, ϵ, nodes, positions, weights, sens)
+
+    bt = zeros(size(a_t))
+    r = zeros(size(a_t))
+
+    for coil = 1:size(a_t,1)
+
+        sens_t = zeros(ComplexF64,size(sens))
+        sens_t[coil,:] = sens[coil,:]
+
+        x_t = zeros(ComplexF64,size(a_t))
+        
+        p = x_t
+        p[coil,:] = a_t[coil,:]
+        a = p
+        r1 = p
+        r2 = p
+        b = 0
+
+        for i = 1:10
+
+            δ = sum(abs.(conj(r1)'*r1 ./ (conj(a)'*a)),dims=(1,2))[1,1]
+            
+            println(size(δ))
+
+            if δ .< ϵ 
+
+                return b
+
+            else
+                @info size(sens)
+                @info size(p)
+                q = weighted_EHMulx_Tullio_SENSE(p,nodes,positions,weights,sens) 
+                b = b .+ ((conj(r1)'*r1) ./ (conj(p)'*q)') * p
+                r2 = r1 .- ((conj(r1)'*r1) ./ (conj(p)'*q)) * q
+                p = r2 .+ ((conj(r2)'*r2) ./ (conj(r1)'*r1)) * p
+                r1 = r2
+            
+            end
+
+
+        end
+
+        bt[coil,:] = b
+
+    end
+
+    return bt
+
+end
+
+
+
 ## Define Kernel Length
 kernel_length = 9
 
@@ -566,9 +621,9 @@ else
     ker = deltaKernel(kernel_length, 2)
 end
 
-## Set up Simulation (forward sim)
-N = 192
-M = 192
+## Set up Simula_tion (forward sim)
+N = 64
+M = 64
 imShape = (N, M)
 
 ## Read in test MRI Image
@@ -582,8 +637,7 @@ imShape = size(I_mage)
 ## Filter the k-space of the image corresponding to circular trajectory extent
 I_mage = circularShutterFreq!(I_mage, 1)
 
-figure()
-imshow(I_mage)
+heatmap(I_mage)
 
 # B2 = zeros(size(I_mage))
 
@@ -591,17 +645,17 @@ imshow(I_mage)
 
 # I_mage = B2
 
-sensitivity = birdcageSensitivity(N,20,Float64(1.25))
+sensitivity = birdcageSensitivity(N,8,Float64(1.25))
 sensitivity2 = permutedims(sensitivity, [4,2,3,1])
-sens = reshape(sensitivity2,(20,N*M))
+sens = reshape(sensitivity2,(8,N*M))
 
 # Simulation parameters
 parameters = Dict{Symbol,Any}()
 parameters[:simulation] = "fast"
 parameters[:trajName] = "Spiral"
 parameters[:numProfiles] = 1
-parameters[:numSamplingPerProfile] = imShape[1] * imShape[2] *2
-parameters[:windings] = 140
+parameters[:numSamplingPerProfile] = imShape[1] * imShape[2]
+parameters[:windings] = N+N+16
 parameters[:AQ] = parameters[:numSamplingPerProfile] * 2e-6 # Set 2μs dwell time
 parameters[:senseMaps] = sensitivity
 
@@ -620,42 +674,42 @@ signalRef = deepcopy(acqData.kdata[1])
 perturbedSim = sim #+ randn(length(sim)) + 0.5 .* 1im .* randn(length(sim))
 
 @time dataTest = weighted_EMulx_Tullio_SENSE(I_mage, nodesRef, positions, get_weights(nodes_to_gradients(nodesRef)), sens)
-
-
 @time reconTest = weighted_EHMulx_Tullio_SENSE(dataTest, nodesRef, positions, get_weights(nodes_to_gradients(nodesRef)), sens)
-
-
 @time reconTest2 = weighted_EHMulx_Tullio_SENSE(signalRef', nodesRef, positions, get_weights(nodes_to_gradients(nodesRef)),sens)
 
+imData = permutedims(reshape(reconTest, (8,N,N)), [2,3,1])
+imData2 = permutedims(reshape(reconTest2, (8,N,N)), [2,3,1])
+
+naiveRecon = sqrt.(sum(abs2,imData,dims=3))
+naiveRecon2 = sqrt.(sum(abs2, imData2, dims=3))
+d = (real.(naiveRecon[:,:,1])')
+d2 = (real.(naiveRecon2[:,:,1])')
 
 
-imData = permutedims(reshape(reconTest2, (20,N,N)), [2,3,1])
-imData2 = permutedims(reshape(reconTest, (20,N,N)), [2,3,1])
-naiveRecon = sum(abs2,imData,dims=3)
-naiveRecon2 = sum(abs2, imData2, dims=3)
-d = rotl90(abs.(naiveRecon[:,:,1])')
-d2 = rotr90(abs.(naiveRecon2[:,:,1])')
+mosaicview(d,d2)
+heatmap(r)
+heatmap(d2)
 
-figure()
-imshow(d)
-figure()
-imshow(d2)
+# do the cg
 
-figure()
-plot(naiveRecon[N÷2,:])
-plot(naiveRecon[:,M÷2])
+# # dataCG = cg(dataTest,0.001,nodesRef,positions,get_weights(nodes_to_gradients(nodesRef)),sens)
+# # figure()
+# # imshow(reshape(abs.(dataCG[3,:]),64,64))
+
+# figure()
+# plot(naiveRecon[N÷2,:])
+# plot(naiveRecon[:,M÷2])
 
 @info "Setting Parameters \n"
 params = Dict{Symbol,Any}()
 params[:reco] = "multiCoil"
 params[:reconSize] = (N,M)
 params[:regularization] = "L2"
-params[:λ] = 1.e-3
+params[:λ] = 1.e-2
 params[:iterations] = 20
-params[:solver] = "admm"
+params[:solver] = "cgnr"
 params[:senseMaps] = sensitivity
 
 dat = reconstruction(acqData,params)
 
-figure()
-imshow(real.(dat.data[:,:,1,1,1]))
+heatmap(abs.(mosaicview(dat)))
