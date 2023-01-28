@@ -3,7 +3,6 @@ using Tullio
 using Plots
 using FFTW
 using Zygote
-using CUDA
 
 plotlyjs()
 
@@ -35,13 +34,20 @@ end
 
 function computePosForward(shape)
 
-    mapreduce(permutedims,vcat,hcat(collect.(Tuple.(CartesianIndices(shape))))[:])' .- [shape[1]÷2, shape[2]÷2] .- [1, 1]
+    X,Y = shape
+    
 
-end
+    positions = Matrix{Float64}(undef,2,prod(shape))
+    ox = ones(shape)
+    oy = ones(shape)
 
-function computeNodesBackward(nodes,positions)
+    px = LinRange(-X/2,X/2-1,X).*ox
+    py = LinRange(-Y/2,Y/2-1,Y).*oy
 
+    positions[1,:] = vec(px)
+    positions[2,:] = vec(py')
 
+    return positions
 
 end
 
@@ -50,18 +56,22 @@ function par_Emul(x,shape,nodes::AbstractArray, positions::AbstractArray)
     K = size(nodes,2)
     x = reshape(x,shape)
     y = zeros(ComplexF64,K)
+    r = zeros(ComplexF64,K,K)
     X,Y = shape
 
-    stride = 256
-    extra = mod(prod(shape),stride)  
-    nblocks = prod(shape) ÷ stride      
+    stride = 144
+    nblocks = prod(shape)÷stride
+
     for k = 1:K
         for nx = 1:nblocks
-            @info size(exp.(-2*1im*pi*(nodes[:,k]'*positions[:,(nx-1)*stride .+ (1:stride)]))*x[(nx-1)*stride .+ (1:stride)])
+            y[k] += vec(exp.(-2*1im*pi*nodes[:,k]'*positions[:,(nx-1)*stride .+ (1:stride)]))'*x[(nx-1)*stride .+ (1:stride)]
+            r[k,:] = exp.(-2*1im*pi*nodes[:,k]'*positions[:,(nx-1)*stride .+ (1:stride)])
+            
+            @info positions
         end
     end
 
-    return y
+    return y,r
 
 end
 
@@ -122,7 +132,7 @@ end
 
 mag_test = x->(sinc(0.2*x))
 phase_test = x->(0.01*x)
-positions = LinRange(-64,63,64)
+positions = LinRange(-12,11,12)
 
 mag = mag_test.(positions) .* mag_test.(positions)'
 phase = phase_test.(positions) .* phase_test.(positions)'
@@ -130,16 +140,17 @@ phase = phase_test.(positions) .* phase_test.(positions)'
 p1 = plot(mag)
 p2 = plot(phase)
 
-x = mag .* exp.(1im .* 2 .*pi .*phase)
+x = vec(mag .* exp.(1im .* 2 .*pi .*phase))
 
-x_cu = CuArray(x)
+nodes = cartesian2dNodes(Float64,12,12)
 
-nodes = cartesian2dNodes(Float64,32,64)
-
-nodes_cu = CuArray(nodes)
-shape = size(x)
+shape = size(phase)
 
 ft_x = Emul(x,shape,nodes)
 x̂ = EHmul(ft_x,shape,nodes)
 
-@benchmark EHmul(ft_x,shape,nodes)
+positions = computePosForward((12,12))
+
+ft_x_par,E2 = par_Emul(x,shape,nodes,positions)
+
+plot()
